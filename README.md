@@ -4,7 +4,7 @@ C++
 OpenCV  
 LSDライブラリ（lsd.c, lsd.h）  
 
-ファイル構成
+ファイル構成  
 detect4.cpp      # メインコード  
 lsd.c            # LSDライブラリ本体  
 lsd.h            # LSDライブラリヘッダ  
