@@ -134,7 +134,7 @@ Result find_best(const cv::Mat& original) {
         }
     }
 
-    return found ? best : Result{0, 0, 0, 0, 0.0};
+    return found ? best : Result{0, 0, 0, 0, 0.0, 0.0};
 }
 //結果の描画・表示
 void draw_lines(const cv::Mat& original, const std::vector<LineInfo>& lines,
