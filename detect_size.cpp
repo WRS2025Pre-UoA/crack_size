@@ -157,101 +157,19 @@ void draw_lines(const cv::Mat& original, const std::vector<LineInfo>& lines,
     cv::waitKey(0);
 }
 
-//射影変換
-cv::Mat homography(const cv::Mat& input_gray, float shrink_ratio = 0.05f) {
-    if (input_gray.empty() || input_gray.channels() != 1) {
-        std::cerr << "Input must be a grayscale image.\n";
-        return cv::Mat();
-    }
-
-    cv::Mat binary;
-    cv::threshold(input_gray, binary, 100, 255, cv::THRESH_BINARY);
-
-    std::vector<std::vector<cv::Point>> contours;
-    cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
-    if (contours.empty()) {
-        std::cerr << "No contours found.\n";
-        return cv::Mat();
-    }
-
-    size_t max_idx = 0;
-    double max_area = 0;
-    for (size_t i = 0; i < contours.size(); ++i) {
-        double area = cv::contourArea(contours[i]);
-        if (area > max_area) {
-            max_area = area;
-            max_idx = i;
-        }
-    }
-
-    const std::vector<cv::Point>& contour = contours[max_idx];
-
-    cv::Point tl, tr, br, bl;
-    double min_sum = 1e9, max_sum = -1e9, min_diff = 1e9, max_diff = -1e9;
-    for (const auto& pt : contour) {
-        int sum = pt.x + pt.y;
-        int diff = pt.x - pt.y;
-        if (sum < min_sum) { min_sum = sum; tl = pt; }
-        if (sum > max_sum) { max_sum = sum; br = pt; }
-        if (diff < min_diff) { min_diff = diff; bl = pt; }
-        if (diff > max_diff) { max_diff = diff; tr = pt; }
-    }
-
-    std::vector<cv::Point2f> quad_pts = {tl, bl, br, tr};
-
-    cv::Point2f center(0, 0);
-    for (const auto& pt : quad_pts) center += pt;
-    center *= 1.0f / quad_pts.size();
-
-    std::vector<cv::Point2f> shrunk_quad;
-    for (const auto& pt : quad_pts) {
-        cv::Point2f dir = center - pt;
-        shrunk_quad.push_back(pt + dir * shrink_ratio);
-    }
-
-    float widthA = cv::norm(quad_pts[0] - quad_pts[3]);
-    float widthB = cv::norm(quad_pts[1] - quad_pts[2]);
-    float width = (widthA + widthB) / 2.0f;
-
-    float heightA = cv::norm(quad_pts[0] - quad_pts[1]);
-    float heightB = cv::norm(quad_pts[3] - quad_pts[2]);
-    float height = (heightA + heightB) / 2.0f;
-
-    int warped_width = std::round(width);
-    int warped_height = std::round(height);
-
-    std::vector<cv::Point2f> dst_pts = {
-        {0, 0},
-        {0, float(warped_height - 1)},
-        {float(warped_width - 1), float(warped_height - 1)},
-        {float(warped_width - 1), 0}
-    };
-
-    cv::Mat M = cv::getPerspectiveTransform(shrunk_quad, dst_pts);
-    cv::Mat warped;
-    cv::warpPerspective(input_gray, warped, M, cv::Size(warped_width, warped_height));
-
-    return warped;
-}
 
 int run_detection(const cv::Mat& original) {
     auto start = std::chrono::high_resolution_clock::now();
-    cv::Mat corrected = homography(original);
-    if (corrected.empty()) {
-        std::cerr << "Projection transform failed.\n";
-        return -1;
-    }
-    
-    auto best = find_best(corrected);
+    auto best = find_best(original);
     if (best.num_lines == 0) {
         std::cerr << "No valid result.\n";
     }
 
-    auto lines = detect_LSD(corrected, best.threshold, best.blur, best.nfa);
+    auto lines = detect_LSD(original, best.threshold, best.blur, best.nfa);
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     std::cout << "detect5 [処理時間] " << duration.count() << " ms\n";
-    draw_lines(corrected, lines, best.threshold, best.blur);
+    draw_lines(original, lines, best.threshold, best.blur);
 
     std::cout << "Threshold: " << best.threshold
               << ", Blur: " << best.blur
