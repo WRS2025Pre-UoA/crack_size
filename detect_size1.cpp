@@ -48,7 +48,7 @@ double get_line_width(const cv::Mat& bin_blur, const cv::Point2f& p1, const cv::
         else break;
     }
 
-    return static_cast<double>(width_pos + width_neg + 1);
+    return static_cast<double>(width_pos + width_neg);
 }
 //直線検出
 std::vector<LineInfo> detect_LSD(const cv::Mat& original, int threshold_val, int blur_size, int nfa_thresh) {
