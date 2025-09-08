@@ -14,6 +14,7 @@ example.png      # （任意）入力画像の例
 g++ detect_size.cpp lsd.c  \`pkg-config --cflags --libs opencv4\`  
 
 detect_size1.cpp 二値化あり
+
 detect_size2.cpp　二値化なし←こっちを使う
 
 実行方法  
