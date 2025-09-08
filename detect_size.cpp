@@ -119,6 +119,7 @@ std::vector<LineInfo> detect_LSD(const cv::Mat& original, int blur_size, int nfa
                 double width_px = get_line_width(gray, p1, p2);
                 double width_mm = width_px * (20.0 / proc.cols) * 10.0;
                 if (width_mm >= 0.1 && width_mm < 5)
+                    //本番は0.1~0.5
                     all_lines.push_back({p1, p2, length_mm, width_mm});
             }
         }
