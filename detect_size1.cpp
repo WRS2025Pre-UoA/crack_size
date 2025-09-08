@@ -13,13 +13,14 @@ struct LineInfo {
 };
 
 struct Result {
-    int threshold, blur, nfa;
+    int blur, nfa;
     int num_lines;
     double total_length;
     double total_width;
 };
+
 //幅検出
-double get_line_width(const cv::Mat& bin_blur, const cv::Point2f& p1, const cv::Point2f& p2) {
+double get_line_width(const cv::Mat& gray, const cv::Point2f& p1, const cv::Point2f& p2) {
     cv::Point2f dir = p2 - p1;
     float len = cv::norm(dir);
     if (len == 0) return 0.0f;
@@ -28,48 +29,72 @@ double get_line_width(const cv::Mat& bin_blur, const cv::Point2f& p1, const cv::
     cv::Point2f normal(-dir.y, dir.x);
     cv::Point2f center = (p1 + p2) * 0.5f;
 
-    int width_pos = 0;
-    int width_neg = 0;
-    int max_check = 20;
+    auto sample = [&](const cv::Point2f& q)->int {
+        int x = std::clamp(cvRound(q.x), 0, gray.cols - 1);
+        int y = std::clamp(cvRound(q.y), 0, gray.rows - 1);
+        return (int)gray.at<uchar>(y, x);
+    };
 
-    for (int offset = 1; offset <= max_check; ++offset) {
-        cv::Point2f p = center + normal * static_cast<float>(offset);
-        if (p.x < 0 || p.x >= bin_blur.cols || p.y < 0 || p.y >= bin_blur.rows) break;
-        uchar val = bin_blur.at<uchar>(cvRound(p.y), cvRound(p.x));
-        if (val < 255) width_pos++;
+    int Ic = sample(center);
+
+    int bgCnt = 0; double Ibg_sum = 0.0;
+    for (int d = 15; d <= 25; ++d) {
+        cv::Point2f ppos = center + normal * (float)d;
+        cv::Point2f pneg = center - normal * (float)d;
+        if (ppos.x >= 0 && ppos.x < gray.cols && ppos.y >= 0 && ppos.y < gray.rows) {
+            Ibg_sum += sample(ppos); bgCnt++;
+        }
+        if (pneg.x >= 0 && pneg.x < gray.cols && pneg.y >= 0 && pneg.y < gray.rows) {
+            Ibg_sum += sample(pneg); bgCnt++;
+        }
+    }
+    if (bgCnt == 0) return 0.0;
+    double Ibg = Ibg_sum / bgCnt;
+
+    double T = 0.5 * (Ic + Ibg);
+    int margin = 10;  // 厳しさを調整（5〜10推奨）
+
+    int max_check = 30;
+    int width_pos = 0, width_neg = 0;
+
+    for (int d = 1; d <= max_check; ++d) {
+        cv::Point2f p = center + normal * (float)d;
+        if (p.x < 0 || p.x >= gray.cols || p.y < 0 || p.y >= gray.rows) break;
+        int I = sample(p);
+        if (I <= T - margin) width_pos++;
         else break;
     }
-
-    for (int offset = 1; offset <= max_check; ++offset) {
-        cv::Point2f p = center - normal * static_cast<float>(offset);
-        if (p.x < 0 || p.x >= bin_blur.cols || p.y < 0 || p.y >= bin_blur.rows) break;
-        uchar val = bin_blur.at<uchar>(cvRound(p.y), cvRound(p.x));
-        if (val < 255) width_neg++;
+    for (int d = 1; d <= max_check; ++d) {
+        cv::Point2f p = center - normal * (float)d;
+        if (p.x < 0 || p.x >= gray.cols || p.y < 0 || p.y >= gray.rows) break;
+        int I = sample(p);
+        if (I <= T - margin) width_neg++;
         else break;
     }
 
     return static_cast<double>(width_pos + width_neg);
 }
+
 //直線検出
-std::vector<LineInfo> detect_LSD(const cv::Mat& original, int threshold_val, int blur_size, int nfa_thresh) {
-    cv::Mat bin,bin_blur;
-    cv::threshold(original, bin, threshold_val, 255, cv::THRESH_BINARY);
+std::vector<LineInfo> detect_LSD(const cv::Mat& original, int blur_size, int nfa_thresh) {
+    cv::Mat gray;
+    if (original.channels() == 3) cv::cvtColor(original, gray, cv::COLOR_BGR2GRAY);
+    else gray = original;
 
-    bin_blur = bin.clone();
+    cv::Mat proc = gray.clone();
+    int k = std::max(1, blur_size) | 1;
+    cv::GaussianBlur(proc, proc, cv::Size(k, k), 1.0);
 
-    int kernel = blur_size | 1;
-    cv::GaussianBlur(bin_blur, bin_blur, cv::Size(kernel, kernel), 1.5);
-
-    std::vector<double> dat(bin_blur.rows * bin_blur.cols);
-    for (int y = 0; y < bin_blur.rows; ++y)
-        for (int x = 0; x < bin_blur.cols; ++x)
-            dat[y * bin_blur.cols + x] = bin_blur.at<uchar>(y, x);
+    std::vector<double> dat(proc.rows * proc.cols);
+    for (int y = 0; y < proc.rows; ++y)
+        for (int x = 0; x < proc.cols; ++x)
+            dat[y * proc.cols + x] = (double)proc.at<uchar>(y, x);
 
     int n_lines = 0;
-    double* lines_data = lsd(&n_lines, dat.data(), bin_blur.cols, bin_blur.rows);
+    double* lines_data = lsd(&n_lines, dat.data(), proc.cols, proc.rows);
 
-    double scale_x = 20.0 / bin_blur.cols;
-    double scale_y = 20.0 / bin_blur.rows;
+    double scale_x = 20.0 / proc.cols;
+    double scale_y = 20.0 / proc.rows;
 
     std::vector<LineInfo> all_lines;
     for (int i = 0; i < n_lines; ++i) {
@@ -91,10 +116,10 @@ std::vector<LineInfo> detect_LSD(const cv::Mat& original, int threshold_val, int
                 std::abs(angle_deg - 90) < 5.0;
 
             if (is_angle_ok && length_mm >= 20.0 && length_mm <= 200.0) {
-                double width_px = get_line_width(bin, p1, p2);
-                double width_mm = width_px * (20.0 / bin.cols) * 10.0;
-                if (width_mm >=0.1 && width_mm < 5)
-                all_lines.push_back({p1, p2, length_mm, width_mm});
+                double width_px = get_line_width(gray, p1, p2);
+                double width_mm = width_px * (20.0 / proc.cols) * 10.0;
+                if (width_mm >= 0.1 && width_mm < 5)
+                    all_lines.push_back({p1, p2, length_mm, width_mm});
             }
         }
     }
@@ -104,24 +129,23 @@ std::vector<LineInfo> detect_LSD(const cv::Mat& original, int threshold_val, int
 
     return all_lines;
 }
+
 //最適な閾値の判断
 Result find_best(const cv::Mat& original) {
     std::vector<Result> results;
 
-    
-    for (int threshold = 120; threshold <= 180; threshold += 5) {
-        for (int nfa = 10; nfa <= 80; nfa += 5) {
-            auto lines = detect_LSD(original, threshold, 5, nfa);
+    for (int blur = 1; blur <= 5; blur += 2) {     
+        for (int nfa = 10; nfa <= 100; nfa += 5) {
+            auto lines = detect_LSD(original, blur, nfa);
             double total_len = 0.0;
             double total_wid = 0.0;
             for (auto& l : lines) {
                 total_len += l.length;
                 total_wid += l.width;
             }
-            results.push_back({threshold, 5, nfa, (int)lines.size(), total_len,total_wid});
+            results.push_back({blur, nfa, (int)lines.size(), total_len, total_wid});
         }
     }
-    
 
     Result best = {};
     bool found = false;
@@ -134,15 +158,20 @@ Result find_best(const cv::Mat& original) {
         }
     }
 
-    return found ? best : Result{0, 0, 0, 0, 0.0, 0.0};
+    return found ? best : Result{ 0, 0, 0, 0.0, 0.0};
 }
+
 //結果の描画・表示
 void draw_lines(const cv::Mat& original, const std::vector<LineInfo>& lines,
-                int threshold_val, int blur_size) {
-    cv::Mat display;
-    cv::threshold(original, display, threshold_val, 255, cv::THRESH_BINARY);
-    int kernel = blur_size | 1;
-    cv::GaussianBlur(display, display, cv::Size(kernel, kernel), 1.5);
+                int blur_size) {
+    cv::Mat gray;
+    if (original.channels() == 3) cv::cvtColor(original, gray, cv::COLOR_BGR2GRAY);
+    else gray = original;
+
+    cv::Mat display = gray.clone();
+    int k = std::max(1, blur_size) | 1;
+    cv::GaussianBlur(display, display, cv::Size(k, k), 1.0);
+
     cv::cvtColor(display, display, cv::COLOR_GRAY2BGR);
 
     for (auto& l : lines) {
@@ -157,7 +186,6 @@ void draw_lines(const cv::Mat& original, const std::vector<LineInfo>& lines,
     cv::waitKey(0);
 }
 
-
 int run_detection(const cv::Mat& original) {
     auto start = std::chrono::high_resolution_clock::now();
     auto best = find_best(original);
@@ -165,14 +193,13 @@ int run_detection(const cv::Mat& original) {
         std::cerr << "No valid result.\n";
     }
 
-    auto lines = detect_LSD(original, best.threshold, best.blur, best.nfa);
+    auto lines = detect_LSD(original, best.blur, best.nfa);
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     std::cout << "detect5 [処理時間] " << duration.count() << " ms\n";
-    draw_lines(original, lines, best.threshold, best.blur);
+    draw_lines(original, lines, best.blur);
 
-    std::cout << "Threshold: " << best.threshold
-              << ", Blur: " << best.blur
+    std::cout << "Blur: " << best.blur
               << ", NFA: " << best.nfa << '\n';
     std::cout << "Lines: " << best.num_lines << '\n'
               << "Total Length (mm): " << best.total_length << '\n'
