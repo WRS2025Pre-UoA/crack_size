@@ -163,11 +163,11 @@ Result find_best(const cv::Mat& original,
     std::vector<Result> results;
     results.reserve(5 * 4 * ((100 - 10) / 5 + 1)); 
 
-    const double clipCandidates[] = {1.0, 1.5, 2.0, 2.5, 3.0};
+    const double clipCandidates[] = {1.0, 1.25, 1.5};
 
     for (double clip : clipCandidates) {
-        for (int blur = 1; blur <= 4; blur += 1) {
-            for (int nfa = 10; nfa <= 100; nfa += 5) {
+        for (int blur = 1; blur <= 3; blur += 1) {
+            for (int nfa = 0; nfa <= 80; nfa += 5) {
                 auto lines = detect_LSD(original, 2*blur-1, nfa, use_clahe, clip, tileGrid);
                 double total_len = 0.0, total_wid = 0.0;
                 for (auto& l : lines) { total_len += l.length; total_wid += l.width; }
@@ -195,7 +195,7 @@ Result find_best(const cv::Mat& original,
             best = r; found = true;
         }
     }
-    return found ? best : Result{0,0,0,0.0,0.0,use_clahe,2.0,tileGrid};
+    return found ? best : Result{0,0,0,0.0,0.0,use_clahe,1.0,tileGrid};
 }
 
 // 結果の描画・表示
@@ -244,8 +244,7 @@ int run_detection(const cv::Mat& original) {
 
     std::cout << "Blur: " << best.blur
               << ", NFA: " << best.nfa
-              << ", clipLimit: " << best.clipLimit
-              << ", tileGrid: " << best.tileGrid << '\n';
+              << ", clipLimit: " << best.clipLimit << '\n';
     std::cout << "Lines: " << best.num_lines << '\n'
               << "Total Length (mm): " << best.total_length << '\n'
               << "Total width (mm): " << best.total_width << '\n';
