@@ -202,7 +202,7 @@ std::vector<LineInfo> detect_LSD(const cv::Mat& original,
                 }
                 if (is_dup) continue;
 
-                // ★ 幅は “元画像” で測る方が厳密（推奨）
+                
                 double width_px = get_line_width(gray, p1, p2);
                 double width_mm = width_px * (20.0 / proc.cols) * 10.0;
                 if (width_mm > 0.5) width_mm = 0.5; // 必要なら調整
@@ -218,7 +218,7 @@ std::vector<LineInfo> detect_LSD(const cv::Mat& original,
 
     return all_lines;
 }
-//  最適化（本数多い→総延長）＋ eq_weight を探索
+//  最適化
 Result find_best(const cv::Mat& original) {
     std::vector<Result> results;
     results.reserve(4 * 3 * ((80 - 0)/5 + 1));
